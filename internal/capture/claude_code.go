@@ -54,6 +54,11 @@ func NewClaudeCodeParser() *ClaudeCodeParser {
 
 func (p *ClaudeCodeParser) ParseJSONL(r io.Reader) (*models.Conversation, error) {
 	scanner := bufio.NewScanner(r)
+	// Increase buffer size for large lines (10MB)
+	const maxScanTokenSize = 10 * 1024 * 1024
+	buf := make([]byte, maxScanTokenSize)
+	scanner.Buffer(buf, maxScanTokenSize)
+
 	var messages []models.Message
 	var sessionID, projectPath string
 	var timestamp time.Time

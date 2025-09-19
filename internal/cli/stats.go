@@ -2,24 +2,51 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/jasper/ai-memory/internal/storage"
 )
 
 func NewStatsCommand() *cobra.Command {
+	var useAll bool
+
 	cmd := &cobra.Command{
 		Use:   "stats",
 		Short: "Show statistics about captured conversations",
 		Long:  `Display statistics about your AI conversations including token usage and costs.`,
-		RunE:  runStats,
+		Example: `  # Show stats for default database
+  mem stats
+
+  # Show stats for all imported conversations
+  mem stats --all
+
+  # Show stats for specific database
+  mem stats --db custom.db`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStats(dbPath, useAll)
+		},
 	}
+
+	cmd.Flags().BoolVar(&useAll, "all", false, "Show stats for all imported conversations (all_conversations.db)")
 
 	return cmd
 }
 
-func runStats(cmd *cobra.Command, args []string) error {
-	store, err := storage.NewSQLiteStore(dbPath)
+func runStats(customDB string, useAll bool) error {
+	database := customDB
+
+	// If --all flag is used and no custom DB specified, use all_conversations.db
+	if useAll && customDB == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		database = filepath.Join(homeDir, ".ai-memory", "all_conversations.db")
+	}
+
+	store, err := storage.NewSQLiteStore(database)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

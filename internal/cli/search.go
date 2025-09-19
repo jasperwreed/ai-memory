@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,34 +14,50 @@ import (
 func NewSearchCommand() *cobra.Command {
 	var limit int
 	var showContext bool
+	var useAll bool
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search conversations",
 		Long:  `Search through all captured AI conversations using full-text search.`,
 		Example: `  # Search for authentication-related conversations
-  ai-memory search "authentication JWT"
+  mem search "authentication JWT"
+
+  # Search in all imported conversations
+  mem search "database migration" --all
 
   # Search with limited results
-  ai-memory search "database migration" --limit 5
+  mem search "database migration" --limit 5
 
   # Search with full context
-  ai-memory search "error handling" --context`,
+  mem search "error handling" --context`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
-			return runSearch(query, limit, showContext)
+			return runSearch(query, limit, showContext, dbPath, useAll)
 		},
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum number of results")
 	cmd.Flags().BoolVar(&showContext, "context", false, "Show full message context")
+	cmd.Flags().BoolVar(&useAll, "all", false, "Search in all imported conversations (all_conversations.db)")
 
 	return cmd
 }
 
-func runSearch(query string, limit int, showContext bool) error {
-	store, err := storage.NewSQLiteStore(dbPath)
+func runSearch(query string, limit int, showContext bool, customDB string, useAll bool) error {
+	database := customDB
+
+	// If --all flag is used and no custom DB specified, use all_conversations.db
+	if useAll && customDB == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		database = filepath.Join(homeDir, ".ai-memory", "all_conversations.db")
+	}
+
+	store, err := storage.NewSQLiteStore(database)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

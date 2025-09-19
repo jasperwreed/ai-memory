@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,19 +14,23 @@ func NewListCommand() *cobra.Command {
 	var limit int
 	var filterTool string
 	var filterProject string
+	var useAll bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List recent conversations",
 		Long:  `List recent AI conversations with filtering options.`,
 		Example: `  # List recent conversations
-  ai-memory list
+  mem list
+
+  # List all imported conversations
+  mem list --all
 
   # List conversations from a specific tool
-  ai-memory list --tool claude
+  mem list --tool claude
 
   # List conversations from a specific project
-  ai-memory list --project backend --limit 20`,
+  mem list --project backend --limit 20`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filter := make(map[string]string)
 			if filterTool != "" {
@@ -33,19 +39,31 @@ func NewListCommand() *cobra.Command {
 			if filterProject != "" {
 				filter["project"] = filterProject
 			}
-			return runList(limit, filter)
+			return runList(limit, filter, dbPath, useAll)
 		},
 	}
 
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum number of conversations to list")
 	cmd.Flags().StringVar(&filterTool, "tool", "", "Filter by tool")
 	cmd.Flags().StringVar(&filterProject, "project", "", "Filter by project")
+	cmd.Flags().BoolVar(&useAll, "all", false, "List from all imported conversations (all_conversations.db)")
 
 	return cmd
 }
 
-func runList(limit int, filter map[string]string) error {
-	store, err := storage.NewSQLiteStore(dbPath)
+func runList(limit int, filter map[string]string, customDB string, useAll bool) error {
+	database := customDB
+
+	// If --all flag is used and no custom DB specified, use all_conversations.db
+	if useAll && customDB == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		database = filepath.Join(homeDir, ".ai-memory", "all_conversations.db")
+	}
+
+	store, err := storage.NewSQLiteStore(database)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

@@ -16,9 +16,9 @@ var (
 
 func NewRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "ai-memory",
+		Use:   "mem",
 		Short: "Terminal-based AI conversation manager",
-		Long: `AI Memory - Capture, search, and manage AI conversations across all CLI-based AI tools.
+		Long: `Mem - Capture, search, and manage AI conversations across all CLI-based AI tools.
 Never lose valuable solutions or insights from your AI sessions again.`,
 		Version: "0.1.0",
 	}
@@ -34,6 +34,7 @@ Never lose valuable solutions or insights from your AI sessions again.`,
 		NewStatsCommand(),
 		NewDeleteCommand(),
 		NewImportCommand(),
+		NewScanCommand(),
 	)
 
 	return rootCmd

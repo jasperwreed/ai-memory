@@ -1,4 +1,4 @@
-# AI Memory
+# Mem - AI Conversation Memory
 
 A lightweight, terminal-first tool for capturing, searching, and managing AI conversations across all CLI-based AI tools (Claude Code, Aider, GPT-CLI, etc.).
 
@@ -14,15 +14,15 @@ A lightweight, terminal-first tool for capturing, searching, and managing AI con
 ## Installation
 
 ```bash
-go install github.com/jasper/ai-memory/cmd/ai-memory@latest
+go install github.com/jasperwreed/ai-memory/cmd/mem@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/jasper/ai-memory.git
+git clone https://github.com/jasperwreed/ai-memory.git
 cd ai-memory
-go build -o ai-memory cmd/ai-memory/main.go
+go build -tags "sqlite_fts5" -o mem cmd/mem/main.go
 ```
 
 ## Usage
@@ -31,45 +31,55 @@ go build -o ai-memory cmd/ai-memory/main.go
 
 Pipe AI tool output directly:
 ```bash
-claude | ai-memory capture --tool claude --project myapp
+claude | mem capture --tool claude --project myapp
 ```
 
 Capture from a file:
 ```bash
-ai-memory capture --tool aider --project backend < conversation.txt
+mem capture --tool aider --project backend < conversation.txt
+```
+
+### Import Claude Code Sessions
+
+```bash
+# Import specific session file
+mem import --file ~/.claude/projects/myproject/session.jsonl
+
+# Import from current project
+mem import --claude-project
 ```
 
 ### Search Conversations
 
 ```bash
 # Search for authentication-related conversations
-ai-memory search "authentication JWT"
+mem search "authentication JWT"
 
 # Search with context
-ai-memory search "database migration" --context
+mem search "database migration" --context
 
 # Limit results
-ai-memory search "error handling" --limit 5
+mem search "error handling" --limit 5
 ```
 
 ### List Recent Conversations
 
 ```bash
 # List all recent conversations
-ai-memory list
+mem list
 
 # Filter by tool
-ai-memory list --tool claude
+mem list --tool claude
 
 # Filter by project
-ai-memory list --project backend --limit 20
+mem list --project backend --limit 20
 ```
 
 ### Browse in TUI
 
 ```bash
 # Open interactive browser
-ai-memory browse
+mem browse
 ```
 
 Navigation:
@@ -82,24 +92,24 @@ Navigation:
 
 ```bash
 # Export as JSON
-ai-memory export --id 42 > conversation.json
+mem export --id 42 > conversation.json
 ```
 
 ### View Statistics
 
 ```bash
 # Show usage statistics
-ai-memory stats
+mem stats
 ```
 
 ### Delete Conversations
 
 ```bash
 # Delete with confirmation
-ai-memory delete --id 42
+mem delete --id 42
 
 # Delete without confirmation
-ai-memory delete --id 42 --yes
+mem delete --id 42 --yes
 ```
 
 ## Conversation Format
