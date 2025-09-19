@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jasper/ai-memory/internal/models"
-	"github.com/jasper/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/storage"
 )
 
 var (

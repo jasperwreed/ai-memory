@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/jasper/ai-memory/internal/tui"
-	"github.com/jasper/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/tui"
+	"github.com/jasperwreed/ai-memory/internal/storage"
 )
 
 func NewBrowseCommand() *cobra.Command {

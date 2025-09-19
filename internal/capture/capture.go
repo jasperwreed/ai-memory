@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jasper/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/models"
 )
 
 type Capturer struct {

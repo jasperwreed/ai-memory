@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jasper/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/models"
 )
 
 type Scanner interface {
