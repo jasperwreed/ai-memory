@@ -1,4 +1,4 @@
-module github.com/jasper/ai-memory
+module github.com/jasperwreed/ai-memory
 
 go 1.25.1
 

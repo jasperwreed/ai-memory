@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jasper/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/models"
 )
 
 func TestSQLiteStore(t *testing.T) {

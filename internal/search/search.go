@@ -1,8 +1,8 @@
 package search
 
 import (
-	"github.com/jasper/ai-memory/internal/models"
-	"github.com/jasper/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/storage"
 )
 
 type Searcher struct {

@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/jasper/ai-memory/internal/models"
-	"github.com/jasper/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/storage"
 )
 
 var (
@@ -34,15 +34,20 @@ var (
 )
 
 type Browser struct {
-	store *storage.SQLiteStore
+	store  *storage.SQLiteStore
+	dbPath string
 }
 
 func NewBrowser(store *storage.SQLiteStore) *Browser {
-	return &Browser{store: store}
+	return &Browser{store: store, dbPath: ""}
+}
+
+func NewBrowserWithPath(store *storage.SQLiteStore, dbPath string) *Browser {
+	return &Browser{store: store, dbPath: dbPath}
 }
 
 func (b *Browser) Run() error {
-	m := initialModel(b.store)
+	m := initialEnhancedModel(b.store, b.dbPath)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return err

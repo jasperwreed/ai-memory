@@ -5,9 +5,9 @@
 *.so
 *.dylib
 
-# Compiled binary
-mem
-ai-memory
+# Compiled binary (only in root directory)
+/mem
+/ai-memory
 
 # Test binary, built with `go test -c`
 *.test
@@ -34,6 +34,7 @@ vendor/
 *.sublime-project
 *.sublime-workspace
 .DS_Store
+.claude/
 
 # Environment variables
 .env

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jasper/ai-memory/internal/capture"
-	"github.com/jasper/ai-memory/internal/models"
+	"github.com/jasperwreed/ai-memory/internal/capture"
+	"github.com/jasperwreed/ai-memory/internal/models"
 )
 
 type ClaudeScanner struct{}

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/jasper/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/storage"
 )
 
 func NewListCommand() *cobra.Command {
