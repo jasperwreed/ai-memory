@@ -7,7 +7,6 @@
 
 # Compiled binary (only in root directory)
 /mem
-/ai-memory
 
 # Test binary, built with `go test -c`
 *.test
@@ -51,9 +50,6 @@ vendor/
 /test/*.db
 /tmp/
 test_*.db
-
-# User data directories
-.ai-memory/
 
 # Log files
 *.log
