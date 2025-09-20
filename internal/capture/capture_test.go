@@ -88,7 +88,7 @@ func TestDetectToolFromInput(t *testing.T) {
 }
 
 func TestEstimateTokens(t *testing.T) {
-	capturer := NewCapturer("test", "", nil)
+	estimator := NewSimpleTokenEstimator()
 
 	tests := []struct {
 		text     string
@@ -101,9 +101,9 @@ func TestEstimateTokens(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tokens := capturer.estimateTokens(tt.text)
+		tokens := estimator.EstimateTokens(tt.text)
 		if tokens < tt.minTokens || tokens > tt.maxTokens {
-			t.Errorf("estimateTokens(%q) = %d, want between %d and %d",
+			t.Errorf("EstimateTokens(%q) = %d, want between %d and %d",
 				tt.text, tokens, tt.minTokens, tt.maxTokens)
 		}
 	}

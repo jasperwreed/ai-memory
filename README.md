@@ -22,7 +22,7 @@ Or build from source:
 ```bash
 git clone https://github.com/jasperwreed/ai-memory.git
 cd ai-memory
-go build -tags "sqlite_fts5" -o mem cmd/mem/main.go
+go build -o mem cmd/mem/main.go
 ```
 
 ## Usage

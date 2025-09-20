@@ -73,15 +73,8 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 func (s *SQLiteStore) initializeDB() error {
 	// Apply SQLite optimizations for performance
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL",          // Write-Ahead Logging for better concurrency
-		"PRAGMA synchronous = NORMAL",        // Safe with WAL mode
-		"PRAGMA temp_store = memory",         // Use memory for temp tables
-		"PRAGMA mmap_size = 30000000000",     // Use memory-mapped I/O
-		"PRAGMA busy_timeout = 5000",         // Wait up to 5 seconds for locks
-		"PRAGMA foreign_keys = ON",           // Enable foreign key constraints
-		"PRAGMA cache_size = -64000",         // 64MB cache
-	}
+	config := DefaultConfig()
+	pragmas := config.pragmas()
 
 	for _, pragma := range pragmas {
 		if _, err := s.writeDB.Exec(pragma); err != nil {
@@ -94,45 +87,16 @@ func (s *SQLiteStore) initializeDB() error {
 
 func (s *SQLiteStore) createTables() error {
 	queries := []string{
-		`CREATE TABLE IF NOT EXISTS conversations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			title TEXT NOT NULL,
-			tool TEXT NOT NULL,
-			project TEXT,
-			tags TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS messages (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			conversation_id INTEGER NOT NULL,
-			role TEXT NOT NULL,
-			content TEXT NOT NULL,
-			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-			token_count INTEGER DEFAULT 0,
-			FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_conversations_tool ON conversations(tool)`,
-		`CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project)`,
-		`CREATE INDEX IF NOT EXISTS idx_conversations_created ON conversations(created_at)`,
-		`CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-			content,
-			content=messages,
-			content_rowid=id
-		)`,
-		`CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages
-		BEGIN
-			INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages
-		BEGIN
-			DELETE FROM messages_fts WHERE rowid = old.id;
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages
-		BEGIN
-			UPDATE messages_fts SET content = new.content WHERE rowid = new.id;
-		END`,
+		queryCreateConversationsTable,
+		queryCreateMessagesTable,
+		queryCreateIndexMessagesConversation,
+		queryCreateIndexConversationsTool,
+		queryCreateIndexConversationsProject,
+		queryCreateIndexConversationsCreated,
+		queryCreateMessagesFTS,
+		queryCreateMessagesInsertTrigger,
+		queryCreateMessagesDeleteTrigger,
+		queryCreateMessagesUpdateTrigger,
 	}
 
 	for _, query := range queries {
@@ -154,8 +118,7 @@ func (s *SQLiteStore) SaveConversation(conv *models.Conversation) error {
 	tagsJSON, _ := json.Marshal(conv.Tags)
 
 	result, err := tx.Exec(
-		`INSERT INTO conversations (title, tool, project, tags, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		queryInsertConversation,
 		conv.Title, conv.Tool, conv.Project, string(tagsJSON), conv.CreatedAt, conv.UpdatedAt,
 	)
 	if err != nil {
@@ -170,8 +133,7 @@ func (s *SQLiteStore) SaveConversation(conv *models.Conversation) error {
 
 	for i := range conv.Messages {
 		result, err := tx.Exec(
-			`INSERT INTO messages (conversation_id, role, content, timestamp, token_count)
-			VALUES (?, ?, ?, ?, ?)`,
+			queryInsertMessage,
 			convID, conv.Messages[i].Role, conv.Messages[i].Content,
 			conv.Messages[i].Timestamp, conv.Messages[i].TokenCount,
 		)
@@ -191,8 +153,7 @@ func (s *SQLiteStore) GetConversation(id int64) (*models.Conversation, error) {
 	var tagsJSON string
 
 	err := s.readDB.QueryRow(
-		`SELECT id, title, tool, project, tags, created_at, updated_at
-		FROM conversations WHERE id = ?`, id,
+		querySelectConversation, id,
 	).Scan(&conv.ID, &conv.Title, &conv.Tool, &conv.Project, &tagsJSON, &conv.CreatedAt, &conv.UpdatedAt)
 
 	if err != nil {
@@ -204,8 +165,7 @@ func (s *SQLiteStore) GetConversation(id int64) (*models.Conversation, error) {
 	}
 
 	rows, err := s.readDB.Query(
-		`SELECT id, conversation_id, role, content, timestamp, token_count
-		FROM messages WHERE conversation_id = ? ORDER BY timestamp`, id,
+		querySelectMessages, id,
 	)
 	if err != nil {
 		return nil, err
@@ -265,19 +225,7 @@ func (s *SQLiteStore) ListConversations(limit, offset int, filter map[string]str
 }
 
 func (s *SQLiteStore) Search(query string, limit int) ([]models.SearchResult, error) {
-	searchQuery := `
-		SELECT DISTINCT
-			c.id, c.title, c.tool, c.project, c.tags, c.created_at, c.updated_at,
-			m.content, bm25(messages_fts) as score
-		FROM messages_fts
-		JOIN messages m ON messages_fts.rowid = m.id
-		JOIN conversations c ON m.conversation_id = c.id
-		WHERE messages_fts MATCH ?
-		ORDER BY score DESC
-		LIMIT ?
-	`
-
-	rows, err := s.writeDB.Query(searchQuery, query, limit)
+	rows, err := s.readDB.Query(querySearchConversations, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -316,24 +264,24 @@ func (s *SQLiteStore) GetStats() (*models.ConversationStats, error) {
 		ProjectBreakdown: make(map[string]int),
 	}
 
-	err := s.writeDB.QueryRow(`SELECT COUNT(*) FROM conversations`).Scan(&stats.TotalConversations)
+	err := s.readDB.QueryRow(queryCountConversations).Scan(&stats.TotalConversations)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.writeDB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&stats.TotalMessages)
+	err = s.readDB.QueryRow(queryCountMessages).Scan(&stats.TotalMessages)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.writeDB.QueryRow(`SELECT COALESCE(SUM(token_count), 0) FROM messages`).Scan(&stats.TotalTokens)
+	err = s.readDB.QueryRow(querySumTokens).Scan(&stats.TotalTokens)
 	if err != nil {
 		return nil, err
 	}
 
 	stats.EstimatedCost = float64(stats.TotalTokens) * 0.000003
 
-	rows, err := s.writeDB.Query(`SELECT tool, COUNT(*) FROM conversations GROUP BY tool`)
+	rows, err := s.readDB.Query(queryGroupByTool)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +295,7 @@ func (s *SQLiteStore) GetStats() (*models.ConversationStats, error) {
 		}
 	}
 
-	rows, err = s.writeDB.Query(`SELECT project, COUNT(*) FROM conversations WHERE project IS NOT NULL GROUP BY project`)
+	rows, err = s.readDB.Query(queryGroupByProject)
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +313,7 @@ func (s *SQLiteStore) GetStats() (*models.ConversationStats, error) {
 }
 
 func (s *SQLiteStore) DeleteConversation(id int64) error {
-	_, err := s.writeDB.Exec(`DELETE FROM conversations WHERE id = ?`, id)
+	_, err := s.writeDB.Exec(queryDeleteConversation, id)
 	return err
 }
 

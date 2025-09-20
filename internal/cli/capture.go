@@ -32,10 +32,11 @@ func NewCaptureCommand() *cobra.Command {
 }
 
 func runCapture(cmd *cobra.Command, args []string) error {
+	validator := NewValidator()
 	autoDetect, _ := cmd.Flags().GetBool("auto-detect")
 
-	if tool == "" && !autoDetect {
-		return fmt.Errorf("--tool flag is required unless --auto-detect is used")
+	if err := validator.ValidateTool(tool, autoDetect); err != nil {
+		return err
 	}
 
 	store, err := storage.NewSQLiteStore(dbPath)
