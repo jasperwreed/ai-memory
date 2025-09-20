@@ -6,7 +6,7 @@
 set -e
 
 echo "Building Mem..."
-go build -tags "sqlite_fts5" -o mem cmd/mem/main.go
+go build -o mem cmd/mem/main.go
 
 echo "Installing to /usr/local/bin..."
 sudo cp mem /usr/local/bin/mem

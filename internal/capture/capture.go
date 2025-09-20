@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
@@ -12,16 +11,20 @@ import (
 )
 
 type Capturer struct {
-	tool    string
-	project string
-	tags    []string
+	tool           string
+	project        string
+	tags           []string
+	patternMatcher *PatternMatcher
+	tokenEstimator TokenEstimator
 }
 
 func NewCapturer(tool, project string, tags []string) *Capturer {
 	return &Capturer{
-		tool:    tool,
-		project: project,
-		tags:    tags,
+		tool:           tool,
+		project:        project,
+		tags:           tags,
+		patternMatcher: NewPatternMatcher(),
+		tokenEstimator: NewSimpleTokenEstimator(),
 	}
 }
 
@@ -34,7 +37,7 @@ func (c *Capturer) CaptureFromReader(r io.Reader) (*models.Conversation, error) 
 		return nil, fmt.Errorf("no input to capture")
 	}
 
-	if isClaudeCodeFormat(content) {
+	if DetectFormat(content) == FormatClaudeCode {
 		parser := NewClaudeCodeParser()
 		conv, err := parser.ParseJSONL(strings.NewReader(content))
 		if err == nil {
@@ -53,17 +56,6 @@ func (c *Capturer) CaptureFromReader(r io.Reader) (*models.Conversation, error) 
 	return conversation, nil
 }
 
-func isClaudeCodeFormat(content string) bool {
-	lines := strings.Split(content, "\n")
-	if len(lines) == 0 {
-		return false
-	}
-
-	firstLine := strings.TrimSpace(lines[0])
-	return strings.Contains(firstLine, `"sessionId"`) &&
-	       strings.Contains(firstLine, `"type"`) &&
-	       (strings.Contains(firstLine, `"user"`) || strings.Contains(firstLine, `"assistant"`))
-}
 
 func (c *Capturer) parseConversation(lines []string) *models.Conversation {
 	conv := &models.Conversation{
@@ -90,51 +82,30 @@ func (c *Capturer) detectMessages(lines []string) []models.Message {
 	var currentMessage *models.Message
 	var currentContent []string
 
-	humanPattern := regexp.MustCompile(`^(Human:|User:|You:|Q:|>)`)
-	assistantPattern := regexp.MustCompile(`^(Assistant:|AI:|Bot:|A:|Claude:|GPT:)`)
-
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
-		if humanPattern.MatchString(trimmedLine) {
+		if role, matched := c.patternMatcher.MatchRole(trimmedLine); matched {
 			if currentMessage != nil && len(currentContent) > 0 {
 				currentMessage.Content = strings.Join(currentContent, "\n")
 				messages = append(messages, *currentMessage)
 				currentContent = []string{}
 			}
 
-			content := humanPattern.ReplaceAllString(trimmedLine, "")
+			content := c.patternMatcher.ExtractContent(trimmedLine, role)
 			currentMessage = &models.Message{
-				Role:      "user",
+				Role:      string(role),
 				Timestamp: time.Now(),
-				Content:   strings.TrimSpace(content),
+				Content:   content,
 			}
 			if content != "" {
-				currentContent = append(currentContent, strings.TrimSpace(content))
+				currentContent = append(currentContent, content)
 			}
-
-		} else if assistantPattern.MatchString(trimmedLine) {
-			if currentMessage != nil && len(currentContent) > 0 {
-				currentMessage.Content = strings.Join(currentContent, "\n")
-				messages = append(messages, *currentMessage)
-				currentContent = []string{}
-			}
-
-			content := assistantPattern.ReplaceAllString(trimmedLine, "")
-			currentMessage = &models.Message{
-				Role:      "assistant",
-				Timestamp: time.Now(),
-				Content:   strings.TrimSpace(content),
-			}
-			if content != "" {
-				currentContent = append(currentContent, strings.TrimSpace(content))
-			}
-
 		} else if currentMessage != nil && trimmedLine != "" {
 			currentContent = append(currentContent, line)
 		} else if len(messages) == 0 && trimmedLine != "" {
 			currentMessage = &models.Message{
-				Role:      "user",
+				Role:      string(RoleUser),
 				Timestamp: time.Now(),
 			}
 			currentContent = append(currentContent, line)
@@ -155,7 +126,7 @@ func (c *Capturer) detectMessages(lines []string) []models.Message {
 	}
 
 	for i := range messages {
-		messages[i].TokenCount = c.estimateTokens(messages[i].Content)
+		messages[i].TokenCount = c.tokenEstimator.EstimateTokens(messages[i].Content)
 	}
 
 	return messages
@@ -188,29 +159,45 @@ func (c *Capturer) generateTitle(lines []string) string {
 	return firstLine
 }
 
-func (c *Capturer) estimateTokens(text string) int {
-	words := strings.Fields(text)
-	return len(words) * 4 / 3
-}
 
 type Parser interface {
 	Parse(input string) (*models.Conversation, error)
 }
 
-type ClaudeParser struct{}
-
-func (p *ClaudeParser) Parse(input string) (*models.Conversation, error) {
-	lines := strings.Split(input, "\n")
-	capturer := NewCapturer("claude", "", nil)
-	return capturer.parseConversation(lines), nil
+// ClaudeParser handles Claude-specific conversation parsing
+type ClaudeParser struct {
+	capturer *Capturer
 }
 
-type AiderParser struct{}
+// NewClaudeParser creates a new Claude parser
+func NewClaudeParser() *ClaudeParser {
+	return &ClaudeParser{
+		capturer: NewCapturer("claude", "", nil),
+	}
+}
 
+// Parse parses Claude conversation format
+func (p *ClaudeParser) Parse(input string) (*models.Conversation, error) {
+	lines := strings.Split(input, "\n")
+	return p.capturer.parseConversation(lines), nil
+}
+
+// AiderParser handles Aider-specific conversation parsing
+type AiderParser struct {
+	capturer *Capturer
+}
+
+// NewAiderParser creates a new Aider parser
+func NewAiderParser() *AiderParser {
+	return &AiderParser{
+		capturer: NewCapturer("aider", "", nil),
+	}
+}
+
+// Parse parses Aider conversation format
 func (p *AiderParser) Parse(input string) (*models.Conversation, error) {
 	lines := strings.Split(input, "\n")
-	capturer := NewCapturer("aider", "", nil)
-	return capturer.parseConversation(lines), nil
+	return p.capturer.parseConversation(lines), nil
 }
 
 func DetectToolFromInput(input string) string {

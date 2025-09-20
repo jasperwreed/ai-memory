@@ -3,11 +3,10 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/jasperwreed/ai-memory/internal/tui"
 	"github.com/jasperwreed/ai-memory/internal/storage"
+	"github.com/jasperwreed/ai-memory/internal/tui"
 )
 
 var (
@@ -58,40 +57,22 @@ Inside the TUI, use vim-style commands:
 }
 
 func runTUI(cmd *cobra.Command, args []string) error {
+	validator := NewValidator()
 	var database string
+	var err error
 
 	if dbPath != "" {
 		database = dbPath
 	} else if len(args) == 1 {
-		projectDir := args[0]
-
-		if projectDir == "." {
-			var err error
-			projectDir, err = os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get current directory: %w", err)
-			}
-		}
-
-		if !filepath.IsAbs(projectDir) {
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get current directory: %w", err)
-			}
-			projectDir = filepath.Join(cwd, projectDir)
-		}
-
-		if stat, err := os.Stat(projectDir); err != nil || !stat.IsDir() {
-			return fmt.Errorf("invalid project directory: %s", projectDir)
-		}
-
-		database = filepath.Join(projectDir, ".ai-memory", "conversations.db")
-	} else {
-		homeDir, err := os.UserHomeDir()
+		database, err = validator.GetProjectDatabasePath(args[0])
 		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
+			return err
 		}
-		database = filepath.Join(homeDir, ".ai-memory", "all_conversations.db")
+	} else {
+		database, err = validator.GetDefaultDatabasePath()
+		if err != nil {
+			return err
+		}
 	}
 
 	store, err := storage.NewSQLiteStore(database)
