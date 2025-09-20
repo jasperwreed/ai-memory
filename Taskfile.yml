@@ -1,0 +1,40 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the mem binary
+    cmds:
+      - go build -o mem cmd/mem/main.go
+
+  test:
+    desc: Run unit tests only
+    cmds:
+      - go test ./...
+
+  test:coverage:
+    desc: Run unit tests with coverage
+    cmds:
+      - go test -v -cover ./...
+
+  test:integration:
+    desc: Run integration tests only
+    cmds:
+      - go test -v -tags=integration ./test/integration
+
+  test:all:
+    desc: Run all tests (unit and integration)
+    cmds:
+      - go test -tags=integration ./...
+
+  install:
+    desc: Build and install mem binary
+    deps: [build]
+    cmds:
+      - ./install.sh
