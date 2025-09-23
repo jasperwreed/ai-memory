@@ -2,14 +2,25 @@ package storage
 
 // Database schema queries
 const (
+	queryCreateProjectsTable = `CREATE TABLE IF NOT EXISTS projects (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_path TEXT UNIQUE NOT NULL
+	)`
+
 	queryCreateConversationsTable = `CREATE TABLE IF NOT EXISTS conversations (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		title TEXT NOT NULL,
 		tool TEXT NOT NULL,
 		project TEXT,
+		project_id INTEGER,
 		tags TEXT,
+		session_id TEXT,
+		source_path TEXT,
+		audit_shard TEXT,
+		raw_json TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (project_id) REFERENCES projects(id)
 	)`
 
 	queryCreateMessagesTable = `CREATE TABLE IF NOT EXISTS messages (
@@ -31,7 +42,10 @@ const (
 	queryCreateIndexMessagesConversation = `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`
 	queryCreateIndexConversationsTool    = `CREATE INDEX IF NOT EXISTS idx_conversations_tool ON conversations(tool)`
 	queryCreateIndexConversationsProject = `CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project)`
+	queryCreateIndexConversationsProjectID = `CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id)`
 	queryCreateIndexConversationsCreated = `CREATE INDEX IF NOT EXISTS idx_conversations_created ON conversations(created_at)`
+	queryCreateIndexConversationsSession  = `CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id)`
+	queryCreateIndexConversationsSource  = `CREATE INDEX IF NOT EXISTS idx_conversations_source ON conversations(source_path)`
 
 	queryCreateMessagesInsertTrigger = `CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages
 	BEGIN
@@ -48,13 +62,17 @@ const (
 		UPDATE messages_fts SET content = new.content WHERE rowid = new.id;
 	END`
 
-	queryInsertConversation = `INSERT INTO conversations (title, tool, project, tags, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`
+	queryInsertProject = `INSERT OR IGNORE INTO projects (project_path) VALUES (?)`
+
+	querySelectProjectID = `SELECT id FROM projects WHERE project_path = ?`
+
+	queryInsertConversation = `INSERT INTO conversations (title, tool, project, project_id, tags, session_id, source_path, audit_shard, raw_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	queryInsertMessage = `INSERT INTO messages (conversation_id, role, content, timestamp, token_count)
 		VALUES (?, ?, ?, ?, ?)`
 
-	querySelectConversation = `SELECT id, title, tool, project, tags, created_at, updated_at
+	querySelectConversation = `SELECT id, title, tool, project, project_id, tags, session_id, source_path, audit_shard, raw_json, created_at, updated_at
 		FROM conversations WHERE id = ?`
 
 	querySelectMessages = `SELECT id, conversation_id, role, content, timestamp, token_count

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/jasperwreed/ai-memory/internal/audit"
 	"github.com/jasperwreed/ai-memory/internal/scanner"
 	"github.com/jasperwreed/ai-memory/internal/storage"
 )
@@ -14,6 +16,9 @@ func NewScanCommand() *cobra.Command {
 	var outputDB string
 	var verbose bool
 	var dryRun bool
+	var auditOnly bool
+	var noAudit bool
+	var auditDir string
 
 	cmd := &cobra.Command{
 		Use:   "scan",
@@ -23,8 +28,12 @@ Currently supports: Claude Code
 
 The scan command will:
 1. Search for Claude Code session files in ~/.claude/projects/
-2. Parse and import all found conversations
-3. Create or update the conversations database`,
+2. Capture raw sessions to audit logs for permanent preservation (default)
+3. Import parsed conversations to the database (default)
+4. Link database entries to audit shards for traceability
+
+By default, scan performs BOTH audit capture and database import to protect against
+Claude's 30-day purge. Use flags to modify this behavior.`,
 		Example: `  # Scan and import all found conversations
   mem scan
 
@@ -35,20 +44,41 @@ The scan command will:
   mem scan --dry-run
 
   # Verbose output
-  mem scan --verbose`,
+  mem scan --verbose
+
+  # Only capture to audit logs (no database import)
+  mem scan --audit-only
+
+  # Only import to database (no audit capture)
+  mem scan --no-audit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runScan(outputDB, verbose, dryRun)
+			// Validate flag combinations
+			if auditOnly && noAudit {
+				return fmt.Errorf("cannot use --audit-only and --no-audit together")
+			}
+
+			// Determine what to run
+			captureAudit := !noAudit        // Capture audit by default, unless --no-audit
+			importToDB := !auditOnly         // Import to DB by default, unless --audit-only
+
+			return runScan(outputDB, auditDir, verbose, dryRun, captureAudit, importToDB)
 		},
 	}
+
+	homeDir, _ := os.UserHomeDir()
+	defaultAuditDir := filepath.Join(homeDir, ".ai-memory", "audit")
 
 	cmd.Flags().StringVar(&outputDB, "output", "", "Output database file (default: ~/.ai-memory/all_conversations.db)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show detailed progress")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be imported without actually importing")
+	cmd.Flags().BoolVar(&auditOnly, "audit-only", false, "Only capture to audit logs (no database import)")
+	cmd.Flags().BoolVar(&noAudit, "no-audit", false, "Skip audit capture (only import to database)")
+	cmd.Flags().StringVar(&auditDir, "audit-dir", defaultAuditDir, "Directory for audit logs")
 
 	return cmd
 }
 
-func runScan(outputDB string, verbose, dryRun bool) error {
+func runScan(outputDB, auditDir string, verbose, dryRun, captureAudit, importToDB bool) error {
 	if outputDB == "" {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -58,7 +88,42 @@ func runScan(outputDB string, verbose, dryRun bool) error {
 	}
 
 	fmt.Println("🔍 Scanning for AI conversation files...")
+
+	// Show what will be done
+	if dryRun {
+		fmt.Println("   Mode: DRY RUN (no changes will be made)")
+	} else {
+		if captureAudit && importToDB {
+			fmt.Println("   Mode: Full capture (audit + database)")
+		} else if captureAudit {
+			fmt.Println("   Mode: Audit capture only")
+		} else if importToDB {
+			fmt.Println("   Mode: Database import only")
+		}
+	}
 	fmt.Println()
+
+	// Initialize audit logger if requested
+	var auditLogger *audit.AuditLogger
+	if captureAudit && !dryRun {
+		var err error
+		auditLogger, err = audit.NewAuditLogger(auditDir, 100*1024*1024, true) // 100MB shards, compressed
+		if err != nil {
+			return fmt.Errorf("failed to create audit logger: %w", err)
+		}
+		defer auditLogger.Close()
+
+		fmt.Printf("📝 Audit logs: %s\n", auditDir)
+	}
+
+	// Show database path if importing
+	if importToDB && !dryRun {
+		fmt.Printf("💾 Database: %s\n", outputDB)
+	}
+
+	if (captureAudit || importToDB) && !dryRun {
+		fmt.Println()
+	}
 
 	// Initialize scanners (extensible design for future tools)
 	scanners := []scanner.Scanner{
@@ -114,10 +179,17 @@ func runScan(outputDB string, verbose, dryRun bool) error {
 		}
 
 		if !dryRun {
-			imported, failed := importSessions(s, sessions, outputDB, verbose)
-			result.Imported = imported
-			result.Failed = failed
-			totalImported += imported
+			if importToDB {
+				imported, failed := importSessions(s, sessions, outputDB, auditLogger, verbose)
+				result.Imported = imported
+				result.Failed = failed
+				totalImported += imported
+			} else if captureAudit {
+				// Audit-only mode: just capture raw files
+				captureSessionsToAudit(s, sessions, auditLogger, verbose)
+				result.Imported = len(sessions)
+				totalImported += len(sessions)
+			}
 		}
 
 		results = append(results, result)
@@ -130,25 +202,51 @@ func runScan(outputDB string, verbose, dryRun bool) error {
 	fmt.Printf("   Total sessions found: %d\n", totalFound)
 
 	if !dryRun {
-		fmt.Printf("   Successfully imported: %d\n", totalImported)
-		if totalFound > totalImported {
-			fmt.Printf("   Failed to import: %d\n", totalFound-totalImported)
+		if importToDB {
+			fmt.Printf("   Successfully imported to DB: %d\n", totalImported)
+			if totalFound > totalImported {
+				fmt.Printf("   Failed to import: %d\n", totalFound-totalImported)
+			}
 		}
-		fmt.Printf("   Database: %s\n", outputDB)
-		fmt.Println()
-		fmt.Println("✨ You can now use:")
-		fmt.Println("   mem browse        # Browse all imported conversations")
-		fmt.Println("   mem search <query> # Search across all conversations")
-		fmt.Println("   mem stats         # View statistics")
+		if captureAudit {
+			fmt.Printf("   Captured to audit logs: %d\n", totalImported)
+			fmt.Printf("   Audit directory: %s\n", auditDir)
+		}
+		if importToDB {
+			fmt.Printf("   Database: %s\n", outputDB)
+			fmt.Println()
+			fmt.Println("✨ You can now use:")
+			fmt.Println("   mem browse        # Browse all imported conversations")
+			fmt.Println("   mem search <query> # Search across all conversations")
+			fmt.Println("   mem stats         # View statistics")
+		}
+		if captureAudit && !importToDB {
+			fmt.Println()
+			fmt.Println("✨ Audit logs captured. You can:")
+			fmt.Println("   mem daemon logs   # View audit logs")
+			fmt.Println("   mem scan --no-audit # Import to database later")
+		}
 	} else {
 		fmt.Println("\n(Dry run - no changes made)")
-		fmt.Printf("Would import %d conversations to: %s\n", totalFound, outputDB)
+		actions := []string{}
+		if captureAudit {
+			actions = append(actions, fmt.Sprintf("capture to %s", auditDir))
+		}
+		if importToDB {
+			actions = append(actions, fmt.Sprintf("import to %s", outputDB))
+		}
+		if len(actions) > 0 {
+			fmt.Printf("Would %s (%d sessions)\n", actions[0], totalFound)
+			for i := 1; i < len(actions); i++ {
+				fmt.Printf("  and %s\n", actions[i])
+			}
+		}
 	}
 
 	return nil
 }
 
-func importSessions(s scanner.Scanner, sessions []scanner.SessionInfo, dbPath string, verbose bool) (imported, failed int) {
+func importSessions(s scanner.Scanner, sessions []scanner.SessionInfo, dbPath string, auditLogger *audit.AuditLogger, verbose bool) (imported, failed int) {
 	store, err := storage.NewSQLiteStore(dbPath)
 	if err != nil {
 		fmt.Printf("  ❌ Failed to open database: %v\n", err)
@@ -170,16 +268,60 @@ func importSessions(s scanner.Scanner, sessions []scanner.SessionInfo, dbPath st
 			continue
 		}
 
-		// Check if already imported (avoid duplicates)
-		existing, _ := store.ListConversations(100, 0, map[string]string{
-			"tool": conv.Tool,
-		})
+		// Capture to audit log if enabled
+		if auditLogger != nil {
+			// Read the raw file for audit
+			rawData, err := os.ReadFile(session.Path)
+			if err == nil {
+				// Write raw JSONL lines to audit
+				lines := splitJSONL(rawData)
+				currentShard := getCurrentShardName(auditLogger)
 
+				for _, line := range lines {
+					if len(line) > 0 {
+						// Add metadata about source
+						event := map[string]interface{}{
+							"type":        "import",
+							"source_path": session.Path,
+							"session_id":  conv.SessionID,
+							"tool":        conv.Tool,
+							"project":     conv.Project,
+							"timestamp":   time.Now().Unix(),
+						}
+
+						// Store raw line
+						auditLogger.WriteRawLine(line)
+						auditLogger.WriteEvent(event)
+					}
+				}
+
+				// Update conversation with audit shard reference
+				conv.AuditShard = currentShard
+			} else if verbose {
+				fmt.Printf("    ⚠️  Could not read file for audit: %v\n", err)
+			}
+		}
+
+		// Check if already imported (avoid duplicates based on session_id)
 		isDuplicate := false
-		for _, e := range existing {
-			if e.Title == conv.Title && len(e.Messages) == len(conv.Messages) {
+		if conv.SessionID != "" {
+			// First check by session_id for exact match
+			existing, _ := store.GetConversationBySessionID(conv.SessionID)
+			if existing != nil {
 				isDuplicate = true
-				break
+			}
+		}
+
+		// Fallback to checking by title and message count
+		if !isDuplicate {
+			existing, _ := store.ListConversations(100, 0, map[string]string{
+				"tool": conv.Tool,
+			})
+			for _, e := range existing {
+				if e.Title == conv.Title && len(e.Messages) == len(conv.Messages) {
+					isDuplicate = true
+					break
+				}
 			}
 		}
 
@@ -205,4 +347,86 @@ func importSessions(s scanner.Scanner, sessions []scanner.SessionInfo, dbPath st
 	}
 
 	return imported, failed
+}
+
+// splitJSONL splits raw data into individual JSONL lines
+func splitJSONL(data []byte) [][]byte {
+	var lines [][]byte
+	start := 0
+	for i, b := range data {
+		if b == '\n' {
+			if i > start {
+				lines = append(lines, data[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(data) {
+		lines = append(lines, data[start:])
+	}
+	return lines
+}
+
+// getCurrentShardName gets the current active shard name from the audit logger
+func getCurrentShardName(logger *audit.AuditLogger) string {
+	shards, err := logger.GetActiveShards()
+	if err != nil || len(shards) == 0 {
+		return ""
+	}
+	// Return the most recent shard
+	return filepath.Base(shards[len(shards)-1].Path)
+}
+
+// captureSessionsToAudit captures sessions to audit log only (no DB import)
+func captureSessionsToAudit(s scanner.Scanner, sessions []scanner.SessionInfo, auditLogger *audit.AuditLogger, verbose bool) {
+	for i, session := range sessions {
+		if verbose {
+			fmt.Printf("  [%d/%d] Capturing %s to audit...\n", i+1, len(sessions), filepath.Base(session.Path))
+		}
+
+		// Read the raw file for audit
+		rawData, err := os.ReadFile(session.Path)
+		if err != nil {
+			if verbose {
+				fmt.Printf("    ⚠️  Could not read file: %v\n", err)
+			}
+			continue
+		}
+
+		// Parse just to get metadata
+		conv, _ := s.ParseSession(session.Path)
+		sessionID := ""
+		tool := s.Name()
+		project := session.ProjectName
+
+		if conv != nil {
+			sessionID = conv.SessionID
+			tool = conv.Tool
+			project = conv.Project
+		}
+
+		// Write raw JSONL lines to audit
+		lines := splitJSONL(rawData)
+		for _, line := range lines {
+			if len(line) > 0 {
+				// Store raw line
+				auditLogger.WriteRawLine(line)
+
+				// Add metadata event
+				event := map[string]interface{}{
+					"type":        "capture",
+					"source_path": session.Path,
+					"session_id":  sessionID,
+					"tool":        tool,
+					"project":     project,
+					"timestamp":   time.Now().Unix(),
+				}
+				auditLogger.WriteEvent(event)
+			}
+		}
+
+		if verbose {
+			fmt.Printf("    ✅ Captured to audit\n")
+		}
+	}
 }

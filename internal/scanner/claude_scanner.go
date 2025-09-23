@@ -87,7 +87,7 @@ func (s *ClaudeScanner) ParseSession(path string) (*models.Conversation, error) 
 	}
 	defer file.Close()
 
-	parser := capture.NewClaudeCodeParser()
+	parser := capture.NewClaudeCodeParserWithPath(path)
 	return parser.ParseJSONL(file)
 }
 

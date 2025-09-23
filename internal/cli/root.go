@@ -51,6 +51,7 @@ Inside the TUI, use vim-style commands:
 		NewDeleteCommand(),
 		NewImportCommand(),
 		NewScanCommand(),
+		NewDaemonCommand(),
 	)
 
 	return rootCmd

@@ -25,7 +25,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
-		dbPath = filepath.Join(homeDir, ".ai-memory", "conversations.writeDB")
+		dbPath = filepath.Join(homeDir, ".ai-memory", "conversations.db")
 	}
 
 	dir := filepath.Dir(dbPath)
@@ -87,12 +87,16 @@ func (s *SQLiteStore) initializeDB() error {
 
 func (s *SQLiteStore) createTables() error {
 	queries := []string{
+		queryCreateProjectsTable,
 		queryCreateConversationsTable,
 		queryCreateMessagesTable,
 		queryCreateIndexMessagesConversation,
 		queryCreateIndexConversationsTool,
 		queryCreateIndexConversationsProject,
+		queryCreateIndexConversationsProjectID,
 		queryCreateIndexConversationsCreated,
+		queryCreateIndexConversationsSession,
+		queryCreateIndexConversationsSource,
 		queryCreateMessagesFTS,
 		queryCreateMessagesInsertTrigger,
 		queryCreateMessagesDeleteTrigger,
@@ -115,11 +119,30 @@ func (s *SQLiteStore) SaveConversation(conv *models.Conversation) error {
 	}
 	defer tx.Rollback()
 
+	// Handle project insertion/lookup
+	var projectID *int64
+	if conv.ProjectPath != "" {
+		// Insert project if it doesn't exist
+		if _, err := tx.Exec(queryInsertProject, conv.ProjectPath); err != nil {
+			return fmt.Errorf("failed to insert project: %w", err)
+		}
+
+		// Get project ID
+		var pid int64
+		if err := tx.QueryRow(querySelectProjectID, conv.ProjectPath).Scan(&pid); err != nil {
+			return fmt.Errorf("failed to get project ID: %w", err)
+		}
+		projectID = &pid
+		conv.ProjectID = pid
+	}
+
 	tagsJSON, _ := json.Marshal(conv.Tags)
 
 	result, err := tx.Exec(
 		queryInsertConversation,
-		conv.Title, conv.Tool, conv.Project, string(tagsJSON), conv.CreatedAt, conv.UpdatedAt,
+		conv.Title, conv.Tool, conv.Project, projectID, string(tagsJSON),
+		conv.SessionID, conv.SourcePath, conv.AuditShard, conv.RawJSON,
+		conv.CreatedAt, conv.UpdatedAt,
 	)
 	if err != nil {
 		return err
@@ -148,17 +171,68 @@ func (s *SQLiteStore) SaveConversation(conv *models.Conversation) error {
 	return tx.Commit()
 }
 
+func (s *SQLiteStore) GetConversationBySessionID(sessionID string) (*models.Conversation, error) {
+	query := `SELECT id, title, tool, project, project_id, tags, session_id, source_path, audit_shard, raw_json, created_at, updated_at
+		FROM conversations WHERE session_id = ?`
+
+	conv := &models.Conversation{}
+	var tagsJSON string
+	var projectID sql.NullInt64
+	var sessionIDVal, sourcePath, auditShard, rawJSON sql.NullString
+
+	err := s.readDB.QueryRow(query, sessionID).Scan(
+		&conv.ID, &conv.Title, &conv.Tool, &conv.Project, &projectID, &tagsJSON,
+		&sessionIDVal, &sourcePath, &auditShard, &rawJSON,
+		&conv.CreatedAt, &conv.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle nullable fields
+	if projectID.Valid {
+		conv.ProjectID = projectID.Int64
+	}
+	conv.SessionID = sessionIDVal.String
+	conv.SourcePath = sourcePath.String
+	conv.AuditShard = auditShard.String
+	conv.RawJSON = rawJSON.String
+
+	if tagsJSON != "" {
+		json.Unmarshal([]byte(tagsJSON), &conv.Tags)
+	}
+
+	return conv, nil
+}
+
 func (s *SQLiteStore) GetConversation(id int64) (*models.Conversation, error) {
 	conv := &models.Conversation{}
 	var tagsJSON string
+	var projectID sql.NullInt64
+	var sessionID, sourcePath, auditShard, rawJSON sql.NullString
 
 	err := s.readDB.QueryRow(
 		querySelectConversation, id,
-	).Scan(&conv.ID, &conv.Title, &conv.Tool, &conv.Project, &tagsJSON, &conv.CreatedAt, &conv.UpdatedAt)
+	).Scan(&conv.ID, &conv.Title, &conv.Tool, &conv.Project, &projectID, &tagsJSON,
+		&sessionID, &sourcePath, &auditShard, &rawJSON,
+		&conv.CreatedAt, &conv.UpdatedAt)
 
 	if err != nil {
 		return nil, err
 	}
+
+	// Handle nullable fields
+	if projectID.Valid {
+		conv.ProjectID = projectID.Int64
+	}
+	conv.SessionID = sessionID.String
+	conv.SourcePath = sourcePath.String
+	conv.AuditShard = auditShard.String
+	conv.RawJSON = rawJSON.String
 
 	if tagsJSON != "" {
 		json.Unmarshal([]byte(tagsJSON), &conv.Tags)
