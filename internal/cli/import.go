@@ -50,7 +50,7 @@ func importSessionFile(filePath string) error {
 	}
 	defer file.Close()
 
-	parser := capture.NewClaudeCodeParser()
+	parser := capture.NewClaudeCodeParserWithPath(filePath)
 	conversation, err := parser.ParseJSONL(file)
 	if err != nil {
 		return fmt.Errorf("failed to parse session file: %w", err)

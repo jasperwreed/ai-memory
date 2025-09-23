@@ -5,14 +5,20 @@ import (
 )
 
 type Conversation struct {
-	ID        int64     `json:"id"`
-	Title     string    `json:"title"`
-	Tool      string    `json:"tool"`
-	Project   string    `json:"project"`
-	Tags      []string  `json:"tags"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Messages  []Message `json:"messages,omitempty"`
+	ID          int64     `json:"id"`
+	Title       string    `json:"title"`
+	Tool        string    `json:"tool"`
+	Project     string    `json:"project"`
+	ProjectID   int64     `json:"project_id,omitempty"`
+	ProjectPath string    `json:"project_path,omitempty"`
+	Tags        []string  `json:"tags"`
+	SessionID   string    `json:"session_id,omitempty"`
+	SourcePath  string    `json:"source_path,omitempty"`
+	AuditShard  string    `json:"audit_shard,omitempty"`
+	RawJSON     string    `json:"-"` // Don't include in JSON output
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Messages    []Message `json:"messages,omitempty"`
 }
 
 type Message struct {
@@ -28,6 +34,11 @@ type SearchResult struct {
 	Conversation Conversation `json:"conversation"`
 	Snippet      string       `json:"snippet"`
 	Score        float64      `json:"score"`
+}
+
+type Project struct {
+	ID          int64  `json:"id"`
+	ProjectPath string `json:"project_path"`
 }
 
 type ConversationStats struct {

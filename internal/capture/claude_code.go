@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,10 +47,16 @@ type ClaudeToolResult struct {
 	Content   string `json:"content"`
 }
 
-type ClaudeCodeParser struct{}
+type ClaudeCodeParser struct{
+	sourcePath string
+}
 
 func NewClaudeCodeParser() *ClaudeCodeParser {
 	return &ClaudeCodeParser{}
+}
+
+func NewClaudeCodeParserWithPath(path string) *ClaudeCodeParser {
+	return &ClaudeCodeParser{sourcePath: path}
 }
 
 func (p *ClaudeCodeParser) ParseJSONL(r io.Reader) (*models.Conversation, error) {
@@ -107,14 +114,27 @@ func (p *ClaudeCodeParser) ParseJSONL(r io.Reader) (*models.Conversation, error)
 		return nil, fmt.Errorf("no messages found in Claude Code session")
 	}
 
+	// Extract Claude's project path from the source file path
+	claudeProjectPath := ""
+	if p.sourcePath != "" {
+		// Extract the project directory name from the full path
+		// e.g., /Users/jasper/.claude/projects/-Users-jasper-source-code-repos-cli-tools-ai-memory/session.jsonl
+		// becomes: -Users-jasper-source-code-repos-cli-tools-ai-memory
+		dir := filepath.Dir(p.sourcePath)
+		claudeProjectPath = filepath.Base(dir)
+	}
+
 	conv := &models.Conversation{
-		Tool:      "claude-code",
-		Project:   extractProjectName(projectPath),
-		Title:     generateTitleFromMessages(messages),
-		CreatedAt: timestamp,
-		UpdatedAt: time.Now(),
-		Messages:  messages,
-		Tags:      []string{"claude-code"},
+		Tool:        "claude-code",
+		Project:     extractProjectName(projectPath),
+		ProjectPath: claudeProjectPath,
+		Title:       generateTitleFromMessages(messages),
+		SessionID:   sessionID,
+		SourcePath:  p.sourcePath,
+		CreatedAt:   timestamp,
+		UpdatedAt:   time.Now(),
+		Messages:    messages,
+		Tags:        []string{"claude-code"},
 	}
 
 	return conv, nil
