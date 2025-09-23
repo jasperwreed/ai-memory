@@ -40,6 +40,18 @@ task test:all
 go test ./internal/storage
 go test ./internal/capture
 go test ./internal/cli
+
+# Run a single test by name
+go test -run TestFunctionName ./internal/cli
+```
+
+### Lint & Format
+```bash
+# Format code
+go fmt ./...
+
+# Run go vet for static analysis
+go vet ./...
 ```
 
 ### Dependencies
@@ -58,18 +70,24 @@ This is a Go CLI application for capturing and managing AI conversation history.
 ### Core Components
 
 - **cmd/mem/main.go**: Entry point that delegates to the CLI package
-- **internal/cli**: Command-line interface using Cobra, handles all user commands (capture, search, list, browse, import, export, delete, stats)
+- **internal/cli**: Command-line interface using Cobra, handles all user commands (capture, search, list, browse, import, export, delete, stats, scan, daemon)
 - **internal/storage**: SQLite persistence layer with FTS5 full-text search capabilities, manages conversations and messages
 - **internal/capture**: Conversation parsing logic that detects various AI tool formats (Claude, GPT, Aider, etc.)
+  - **claude_code.go**: Specialized parser for Claude Code JSONL session files
 - **internal/models**: Core data models (Conversation, Message, Statistics)
 - **internal/tui**: Terminal UI implementation using Bubble Tea for interactive browsing
-- **internal/scanner**: File system scanning for Claude Code session files
+  - **enhanced_browser.go**: Vim-style TUI with command mode
+- **internal/scanner**: File system scanning for AI tool session files
+  - **claude_scanner.go**: Finds Claude Code project sessions
 - **internal/search**: Search functionality leveraging SQLite FTS5
+- **internal/daemon**: Background service for watching file changes
+- **internal/watcher**: File system monitoring for auto-capture
+- **internal/audit**: Audit logging for conversation shards
 
 ### Key Design Patterns
 
 - **Single Write / Multiple Read DB Connections**: The SQLiteStore uses separate database connections for writes (single) and reads (pooled) to optimize performance
-- **Conversation Detection**: Automatically detects conversation format from input using pattern matching
+- **Conversation Detection**: Automatically detects conversation format from input using pattern matching in `patterns.go`
 - **Project Context**: Conversations are tagged with tool and project metadata for organization
 - **Token Estimation**: Built-in token counting for tracking AI usage
 - **Test Organization**: Unit tests live alongside source files (*_test.go), integration tests are in test/integration/ and require build tags
@@ -77,13 +95,16 @@ This is a Go CLI application for capturing and managing AI conversation history.
 ### Database Schema
 
 Uses SQLite with FTS5 extension for full-text search. Main tables:
-- `conversations`: Stores conversation metadata
+- `conversations`: Stores conversation metadata with project, tool, and session tracking
 - `messages`: Individual messages with role (user/assistant/system) and content
 - `conversations_fts`: Full-text search virtual table for fast searching
+- `projects`: Project metadata and configuration
+
+The database uses WAL mode and optimized pragmas defined in `internal/storage/config.go` for better concurrency.
 
 ### Command Structure
 
-All commands are defined in `internal/cli/` with validation handled in `internal/cli/validation.go`. The root command is in `root.go` and uses Cobra for command parsing.
+All commands are defined in `internal/cli/` with validation handled in `internal/cli/validation.go`. The root command is in `root.go` and uses Cobra for command parsing. The TUI mode supports vim-style commands (`:search`, `:scan`, `:capture`, etc.) when launched without arguments.
 
 ### Testing Strategy
 

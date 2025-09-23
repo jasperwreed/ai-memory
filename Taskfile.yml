@@ -38,3 +38,22 @@ tasks:
     deps: [build]
     cmds:
       - ./install.sh
+
+  api:build:
+    desc: Build the API server
+    dir: api
+    cmds:
+      - go build -o api-server .
+
+  api:serve:
+    desc: Build and start the API server
+    deps: [api:build]
+    dir: api
+    cmds:
+      - ./api-server {{.CLI_ARGS}}
+
+  api:run:
+    desc: Run API server in development mode
+    dir: api
+    cmds:
+      - go run main.go --port 8080
